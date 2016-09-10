@@ -59,7 +59,7 @@ main = do
           fail "saw some alerts and got scared!"
 
   emoji <-
-    map (\ s -> (dropExtension . takeFileName $ s, inputDirectory </> s)) .
+    map (\ s -> (pack . dropExtension . takeFileName $ s, inputDirectory </> s)) .
       filter (\ s -> ".png" `isSuffixOf` s || ".jpg" `isSuffixOf` s || ".gif" `isSuffixOf` s) <$>
         getDirectoryContents inputDirectory
 
@@ -82,15 +82,20 @@ main = do
     putStrLn "Getting customize emoji page"
     customizeEmojiForm <- Sess.get sess (urlPrefix <> "/customize/emoji")
     customizeEmojiCrumb <- crumb customizeEmojiForm
+    let existingEmoji = customizeEmojiForm ^. Wreq.responseBody . to (decodeUtf8 . toStrict)
     croakOnAlert customizeEmojiForm
 
     for_ emoji $ \ (name, path) -> do
-      putStrLn $ "uploading " <> pack path <> " as " <> pack name
-      resp <- Sess.post sess (urlPrefix <> "/customize/emoji")
-        [ Wreq.partBS "add" "1"
-        , Wreq.partBS "crumb" (encodeUtf8 customizeEmojiCrumb)
-        , Wreq.partBS "name" . encodeUtf8 . pack $ name
-        , Wreq.partBS "mode" "data"
-        , Wreq.partFile "img" path
-        ]
-      croakOnAlert resp
+      if (":" <> name <> ":") `isInfixOf` existingEmoji
+        then
+          putStrLn $ "not uploading " <> name <> " - already exists"
+        else do
+          putStrLn $ "uploading " <> pack path <> " as " <> name
+          resp <- Sess.post sess (urlPrefix <> "/customize/emoji")
+            [ Wreq.partBS "add" "1"
+            , Wreq.partBS "crumb" (encodeUtf8 customizeEmojiCrumb)
+            , Wreq.partBS "name" (encodeUtf8 name)
+            , Wreq.partBS "mode" "data"
+            , Wreq.partFile "img" path
+            ]
+          croakOnAlert resp
