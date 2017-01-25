@@ -51,7 +51,7 @@ main = do
           resp ^? Wreq.responseBody . to decodeUtf8
                 . html . allAttributed (ix "name" . only "crumb")
                   . attrs . at "value" . _Just
-      croakOnAlert = maybeCroakOnAlert True
+      croakOnAlert = maybeCroakOnAlert False
       maybeCroakOnAlert :: Bool -> Wreq.Response LByteString -> IO ()
       maybeCroakOnAlert dontFail resp =
         let alerts =
