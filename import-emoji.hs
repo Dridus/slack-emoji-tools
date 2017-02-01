@@ -18,6 +18,7 @@ import Text.Taggy.Lens (html, allAttributed, allNamed, attributed, attrs)
 data Opts = Opts
   { teamName :: Text
   , inputDirectory :: FilePath
+  , ignoreUploadAlerts :: Bool
   }
 
 json :: Prism' LByteString Value
@@ -30,6 +31,7 @@ main = do
       argsParser = Opts
         <$> (map pack . Opt.strOption $ Opt.short 't' ++ Opt.long "team" ++ Opt.metavar "TEAM-NAME" ++ Opt.help "what team url prefix TEAM-NAME.slack.com")
         <*> (           Opt.strOption $ Opt.short 'd' ++ Opt.long "input-directory" ++ Opt.metavar "DIRECTORY" ++ Opt.help "where to load the emoji images from")
+        <*> (              Opt.switch $ Opt.short 'i' ++ Opt.long "ignore-upload-alerts")
 
   Opts {..} <- Opt.execParser argsParserInfo
 
@@ -45,18 +47,19 @@ main = do
   let urlPrefix = unpack $ "https://" <> teamName <> ".slack.com"
       crumb :: Wreq.Response LByteString -> IO Text
       crumb resp =
-        maybe (fail "couldn't get crumb") pure $ 
+        maybe (fail "couldn't get crumb") pure $
           resp ^? Wreq.responseBody . to decodeUtf8
                 . html . allAttributed (ix "name" . only "crumb")
                   . attrs . at "value" . _Just
-      croakOnAlert :: Wreq.Response LByteString -> IO ()
-      croakOnAlert resp = 
+      croakOnAlert = maybeCroakOnAlert False
+      maybeCroakOnAlert :: Bool -> Wreq.Response LByteString -> IO ()
+      maybeCroakOnAlert dontFail resp =
         let alerts =
               resp ^.. Wreq.responseBody . to decodeUtf8
                      . html . allNamed (only "p") . attributed (ix "class" . nearly "" (elem "alert_error" . words))
         in unless (null alerts) $ do
           traverse_ (putStrLn . ("Alert: " <>) . tshow) alerts
-          fail "saw some alerts and got scared!"
+          if dontFail then pure () else fail "saw some alerts and got scared!"
 
   emoji <-
     map (\ s -> (pack . dropExtension . takeFileName $ s, inputDirectory </> s)) .
@@ -98,4 +101,4 @@ main = do
             , Wreq.partBS "mode" "data"
             , Wreq.partFile "img" path
             ]
-          croakOnAlert resp
+          maybeCroakOnAlert ignoreUploadAlerts resp
